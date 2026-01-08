@@ -1,12 +1,22 @@
 import streamlit as st
-import requests
 import json
 
 # ----------------------------
-# Config
+# Pipeline imports (direct)
 # ----------------------------
-API_URL = "http://localhost:8000/evaluate"  # change if needed
+from pipeline.normalize import normalize_text
+from pipeline.segment import segment_sentences
+from pipeline.grammar_rules import analyze_grammar_rules
+from pipeline.grammar_spacy import refine_with_spacy
+from pipeline.grammar_llm import explain_grammar_errors
+from pipeline.grammar_score import score_grammar
+from pipeline.spelling import evaluate_spelling
+from pipeline.usage_clarity import analyze_usage_clarity
 
+
+# ----------------------------
+# Streamlit config
+# ----------------------------
 st.set_page_config(
     page_title="Grammar & Usage Analyzer",
     layout="wide"
@@ -29,8 +39,59 @@ if st.button("Analyze"):
         st.stop()
 
     with st.spinner("Analyzing..."):
-        resp = requests.post(API_URL, json={"summary": text})
-        result = resp.json()
+        # STEP 1: normalize
+        normalized = normalize_text(text)
+
+        # STEP 2: segment
+        sentences = segment_sentences(normalized)
+
+        sentence_results = []
+        usage_issues = []
+
+        for s in sentences:
+            sent_text = s["text"]
+
+            errors = analyze_grammar_rules(sent_text)
+            errors = refine_with_spacy(sent_text, errors)
+            sentence_results.append(errors)
+
+            usage = analyze_usage_clarity(sent_text)
+            if usage.get("issues"):
+                usage_issues.extend(usage["issues"])
+
+        # STEP 3: grammar score
+        grammar_score = score_grammar(
+            sentence_results=sentence_results,
+            sentence_count=len(sentences),
+        )
+
+        # STEP 4: aggregate errors for LLM explanation
+        aggregated_errors = {}
+        for result in sentence_results:
+            for key, value in result.items():
+                if key.endswith("_spans") and isinstance(value, list):
+                    aggregated_errors.setdefault(key, []).extend(value)
+                elif isinstance(value, int):
+                    aggregated_errors[key] = aggregated_errors.get(key, 0) + value
+
+        grammar_explanation = explain_grammar_errors(
+            summary=normalized,
+            detected_errors=aggregated_errors,
+        )
+
+        spelling = evaluate_spelling(normalized)
+
+        result = {
+            "grammar": {
+                "score": grammar_score,
+                "details": sentence_results,
+                "explanation": grammar_explanation,
+            },
+            "usage_clarity": {
+                "issues": usage_issues
+            },
+            "spelling": spelling,
+        }
 
     # ----------------------------
     # Layout

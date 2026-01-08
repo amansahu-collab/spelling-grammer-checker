@@ -1,4 +1,4 @@
-from app.llm.router import LLMRouter
+from llm.router import LLMRouter
 import json
 
 _llm = LLMRouter()

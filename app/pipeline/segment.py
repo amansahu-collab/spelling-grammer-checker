@@ -1,8 +1,6 @@
 # app/pipeline/segment.py
 
-import spacy
-
-_nlp = spacy.load("en_core_web_sm")
+from nlp import get_nlp
 
 
 def segment_sentences(text: str) -> list[dict]:
@@ -18,7 +16,7 @@ def segment_sentences(text: str) -> list[dict]:
     if not text:
         return []
 
-    doc = _nlp(text)
+    doc = get_nlp()(text)
 
     # spaCy-proposed sentences
     spacy_sents = [sent.text.strip() for sent in doc.sents if sent.text.strip()]

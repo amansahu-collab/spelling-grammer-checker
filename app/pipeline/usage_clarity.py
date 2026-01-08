@@ -1,7 +1,5 @@
-import spacy
 import re
-
-_nlp = spacy.load("en_core_web_sm")
+from nlp import get_nlp
 
 
 def analyze_usage_clarity(sentence: str) -> dict:
@@ -17,7 +15,7 @@ def analyze_usage_clarity(sentence: str) -> dict:
     if not sentence:
         return {"issues": []}
 
-    doc = _nlp(sentence)
+    doc = get_nlp()(sentence)
     tokens = list(doc)
 
     # ----------------------------

@@ -1,8 +1,8 @@
 # app/llm/router.py
 
 import subprocess
-from app.llm.vllm_client import VLLMClient
-from app.llm.ollama_client import OllamaClient
+from llm.vllm_client import VLLMClient
+from llm.ollama_client import OllamaClient
 
 
 def gpu_available() -> bool:

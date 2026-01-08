@@ -9,6 +9,8 @@ from app.pipeline.grammar_llm import explain_grammar_errors
 from app.pipeline.grammar_score import score_grammar
 from app.pipeline.spelling import evaluate_spelling
 from app.pipeline.usage_clarity import analyze_usage_clarity
+from dotenv import load_dotenv
+load_dotenv()
 
 
 app = FastAPI(title="PTE Grammar & Spelling Evaluator")

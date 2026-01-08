@@ -1,8 +1,6 @@
 # app/pipeline/grammar_spacy.py
 
-import spacy
-
-_nlp = spacy.load("en_core_web_sm")
+from nlp import get_nlp
 
 
 def refine_with_spacy(sentence: str, errors: dict) -> dict:
@@ -14,7 +12,7 @@ def refine_with_spacy(sentence: str, errors: dict) -> dict:
     if not sentence:
         return errors
 
-    doc = _nlp(sentence)
+    doc = get_nlp()(sentence)
 
     # ---- ROOT verb check ----
     roots = [t for t in doc if t.dep_ == "ROOT" and t.pos_ == "VERB"]

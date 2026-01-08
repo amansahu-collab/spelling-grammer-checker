@@ -1,7 +1,5 @@
 import re
-import spacy
-
-_nlp = spacy.load("en_core_web_sm")
+from nlp import get_nlp
 
 # ----------------------------
 # Helper: clause splitter
@@ -64,7 +62,7 @@ def analyze_grammar_rules(sentence: str) -> dict:
     if not sentence:
         return errors
 
-    doc = _nlp(sentence)
+    doc = get_nlp()(sentence)
     tokens = list(doc)
 
     # ----------------------------
