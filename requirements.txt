@@ -1,0 +1,15 @@
+# Core
+python-dotenv>=1.0.0
+
+# NLP
+spacy>=3.7.0
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+
+# Grammar / spelling
+pyspellchecker>=0.7.2
+
+# LLM client
+openai>=1.12.0
+
+# UI
+streamlit>=1.32.0
