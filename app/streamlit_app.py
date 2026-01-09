@@ -22,7 +22,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📝 Grammar & Spelling Checker")
+st.title("📝 Grammar & Spelling Checker v2")
 
 # ----------------------------
 # Input
