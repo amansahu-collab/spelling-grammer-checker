@@ -14,6 +14,7 @@ from pipeline.spelling import evaluate_spelling
 from pipeline.usage_clarity import analyze_usage_clarity
 
 
+
 # ----------------------------
 # Streamlit config
 # ----------------------------
@@ -46,6 +47,7 @@ if st.button("Analyze"):
         sentences = segment_sentences(normalized)
 
         sentence_results = []
+        sentence_error_packets = []  # <-- sentence + its errors
         usage_issues = []
 
         for s in sentences:
@@ -53,30 +55,67 @@ if st.button("Analyze"):
 
             errors = analyze_grammar_rules(sent_text)
             errors = refine_with_spacy(sent_text, errors)
+
             sentence_results.append(errors)
+
+            sentence_error_packets.append({
+                "text": sent_text,
+                "errors": errors
+            })
 
             usage = analyze_usage_clarity(sent_text)
             if usage.get("issues"):
                 usage_issues.extend(usage["issues"])
 
-        # STEP 3: grammar score
+        # STEP 3: grammar score (unchanged)
         grammar_score = score_grammar(
             sentence_results=sentence_results,
             sentence_count=len(sentences),
         )
 
-        # STEP 4: aggregate errors for LLM explanation
-        aggregated_errors = {}
-        for result in sentence_results:
-            for key, value in result.items():
-                if key.endswith("_spans") and isinstance(value, list):
-                    aggregated_errors.setdefault(key, []).extend(value)
-                elif isinstance(value, int):
-                    aggregated_errors[key] = aggregated_errors.get(key, 0) + value
+        # --------------------------------------------------
+        # BUILD SENTENCE-LEVEL EXPLANATION ITEMS (FIX)
+        # --------------------------------------------------
+        explanation_items = []
 
-        grammar_explanation = explain_grammar_errors(
-            summary=normalized,
-            detected_errors=aggregated_errors,
+        for packet in sentence_error_packets:
+            sent_text = packet["text"]
+            errs = packet["errors"]
+
+            # Span-based errors
+            for key, value in errs.items():
+                if key.endswith("_spans") and isinstance(value, list):
+                    err_type = key.replace("_spans", "")
+                    for span in value:
+                        explanation_items.append({
+                            "type": err_type,
+                            "text_span": span
+                        })
+
+            # Structural errors (sentence-level)
+            STRUCTURAL_ERRORS = [
+                "missing_verb",
+                "missing_subject",
+                "fragment",
+                "run_on",
+                "tense_error",
+                "clause_overload",
+            ]
+
+            for err_type in STRUCTURAL_ERRORS:
+                if errs.get(err_type, 0) > 0:
+                    explanation_items.append({
+                        "type": err_type,
+                        "text_span": sent_text
+                    })
+
+        grammar_explanation = (
+            explain_grammar_errors(
+                summary=normalized,
+                detected_errors={"_items": explanation_items},
+            )
+            if explanation_items
+            else {"errors": []}
         )
 
         spelling = evaluate_spelling(normalized)

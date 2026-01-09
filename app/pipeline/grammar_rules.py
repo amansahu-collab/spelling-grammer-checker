@@ -53,6 +53,7 @@ def analyze_grammar_rules(sentence: str) -> dict:
     errors["preposition_error_spans"] = []
     errors["capitalization_error_spans"] = []
     errors["agreement_error_spans"] = []
+    errors["tense_error_spans"] = []
 
     errors["agreement_error_v2_spans"] = []
     errors["copula_missing_spans"] = []
@@ -73,20 +74,17 @@ def analyze_grammar_rules(sentence: str) -> dict:
         errors["whitespace_error_spans"].append(m.group())
 
     # ----------------------------
-    # 2. Capitalization (sentence start only)
+    # 2. Capitalization (sentence start)
     # ----------------------------
-    first_token = tokens[0]
-    if first_token.text[0].islower():
+    if tokens and tokens[0].text[0].islower():
         errors["capitalization_error"] += 1
-        errors["capitalization_error_spans"].append(
-            sentence[first_token.idx:first_token.idx + len(first_token)]
-        )
+        errors["capitalization_error_spans"].append(tokens[0].text)
 
     # ----------------------------
-    # 3. Sentence-level structure
+    # 3. Sentence structure
     # ----------------------------
     has_subject = any(t.dep_ in ("nsubj", "nsubjpass") for t in tokens)
-    has_verb = any(t.pos_ == "VERB" for t in tokens)
+    has_verb = any(t.pos_ in ("VERB", "AUX") for t in tokens)
 
     if not has_subject:
         errors["missing_subject"] += 1
@@ -95,139 +93,82 @@ def analyze_grammar_rules(sentence: str) -> dict:
     if not has_subject and not has_verb:
         errors["fragment"] += 1
 
-    verb_count = sum(1 for t in tokens if t.pos_ == "VERB")
-    punct_count = sum(1 for t in tokens if t.text in {".", "!", "?",";"})
-    if verb_count >= 2 and punct_count == 0:
-        errors["run_on"] += 1
+    # ----------------------------
+    # 4. Aux + base verb agreement
+    # doesn't has / does not eats / didn't went
+    # ----------------------------
+    for i, t in enumerate(tokens):
+        if t.lemma_ == "do" and t.pos_ == "AUX":
+            j = i + 1
+            while j < len(tokens) and tokens[j].pos_ == "PART":
+                j += 1
+
+            if j < len(tokens):
+                verb = tokens[j]
+                if verb.tag_ != "VB":
+                    errors["agreement_error"] += 1
+                    span = sentence[t.idx : verb.idx + len(verb)]
+                    errors["agreement_error_spans"].append(span)
 
     # ----------------------------
-    # 4. Clause overload
+    # 5. Missing article before singular count noun
+    # (with ZERO-ARTICLE places handled)
     # ----------------------------
-    conjunctions = sum(
-        1 for t in tokens if t.text.lower() in ("and", "but", "while", "which", "that")
-    )
-    if len(tokens) > 35 and conjunctions >= 3:
-        errors["clause_overload"] += 1
+    MASS_NOUNS = {"oxygen", "sodium", "water", "air", "information"}
+    ZERO_ARTICLE_PLACES = {
+        "school", "college", "university",
+        "bed", "work", "church", "hospital", "home"
+    }
 
-    # ----------------------------
-    # 5. Clause-level analysis
-    # ----------------------------
-    clauses = _split_clauses(doc)
-
-    for cl in clauses:
-        cl_tokens = list(cl)
-        cl_has_subject = any(t.dep_ in ("nsubj", "nsubjpass") for t in cl_tokens)
-        cl_has_verb = any(t.pos_ in ("VERB", "AUX") for t in cl_tokens)
-
-        if cl_has_subject and not cl_has_verb:
-            has_later_verb = any(
-                t.pos_ in ("VERB", "AUX") and t.dep_ != "aux"
-                for t in tokens
-                if t.i > cl_tokens[-1].i
-            )
-            if not has_later_verb:
-                errors["copula_missing"] += 1
-                errors["copula_missing_spans"].append(cl.text)
-
-        # agreement v2 (be-verb)
-        for t in cl_tokens:
-            if t.dep_ in ("nsubj", "nsubjpass"):
-                verb = t.head
-                if verb.pos_ in ("AUX", "VERB"):
-                    if t.tag_ == "NN" and verb.text.lower() == "were":
-                        errors["agreement_error_v2"] += 1
-                        errors["agreement_error_v2_spans"].append(
-                            sentence[t.idx:verb.idx + len(verb)]
-                        )
-
-    # ----------------------------
-    # 5.5 Missing article after conjunction (NEW)
-    # ----------------------------
-    for i, t in enumerate(tokens[:-2]):
-        if t.text.lower() in ("and", "or", "but"):
-            next_tok = tokens[i + 1]
-            next_next = tokens[i + 2]
-
-            if (
-                next_tok.tag_ in ("NN", "JJ")
-                and next_next.tag_ == "NN"
-                and not any(
-                    tok.text.lower() in ("a", "an", "the")
-                    for tok in tokens[max(0, i - 2): i + 1]
-                )
-            ):
-                errors["article_error"] += 1
-                span = sentence[next_tok.idx: next_next.idx + len(next_next)]
-                errors["article_error_spans"].append(span)
-
-    # ----------------------------
-    # 6. Connector collision
-    # ----------------------------
-    for i in range(len(tokens) - 1):
-        if tokens[i].text.lower() in ("and", "but") and tokens[i + 1].text.lower() in ("and", "but"):
-            errors["connector_collision"] += 1
-            errors["connector_collision_spans"].append(
-                sentence[tokens[i].idx:tokens[i + 1].idx + len(tokens[i + 1])]
-            )
-
-    # ----------------------------
-    # 7. Agreement errors
-    # ----------------------------
     for t in tokens:
-        if t.dep_ in ("nsubj", "nsubjpass"):
-            verb = t.head
+        if t.tag_ == "NN" and t.pos_ != "PROPN" and t.text.islower():
+            if t.text.lower() in MASS_NOUNS or t.text.lower() in ZERO_ARTICLE_PLACES:
+                continue
 
-            # strict BE agreement
-            if verb.pos_ == "VERB" and verb.lemma_ == "be":
-                if t.tag_ in ("NN", "NNP") and verb.text.lower() == "were":
-                    errors["agreement_error"] += 1
-                    errors["agreement_error_spans"].append(
-                        sentence[t.idx:verb.idx + len(verb)]
-                    )
-                if t.tag_ in ("NNS", "NNPS") and verb.text.lower() == "was":
-                    errors["agreement_error"] += 1
-                    errors["agreement_error_spans"].append(
-                        sentence[t.idx:verb.idx + len(verb)]
-                    )
+            has_det = any(c.dep_.startswith("det") for c in t.children) or any(
+                any(c.dep_.startswith("det") for c in anc.children)
+                for anc in t.ancestors
+            )
 
-            # agreement v3 (abstract noun + base verb)
-            if t.tag_ == "NN" and verb.pos_ == "VERB" and verb.tag_ in ("VB", "VBP"):
-                errors["agreement_error"] += 1
-                errors["agreement_error_spans"].append(
-                    sentence[t.idx:verb.idx + len(verb)]
-                )
+            if not has_det and t.dep_ in ("dobj", "pobj", "attr"):
+                errors["article_error"] += 1
+                errors["article_error_spans"].append(t.text)
 
     # ----------------------------
-    # 8. Tense heuristic
+    # 6. Comparative vs Superlative misuse
+    # ----------------------------
+    for i, t in enumerate(tokens):
+        if t.tag_ == "JJR" and i > 0 and tokens[i - 1].text.lower() == "the":
+            if t.head.tag_ == "NN":
+                errors["agreement_error"] += 1
+                errors["agreement_error_spans"].append(t.text)
+
+    # ----------------------------
+    # 7. Pronoun agreement (singular non-human)
+    # ----------------------------
+    for i, t in enumerate(tokens):
+        if t.text.lower() == "their":
+            for prev in reversed(tokens[:i]):
+                if prev.tag_ == "NN" and prev.ent_type_ != "PERSON":
+                    errors["agreement_error"] += 1
+                    errors["agreement_error_spans"].append(t.text)
+                    break
+
+    # ----------------------------
+    # 8. Tense heuristic (IMPROVED)
+    # yesterday / last / ago + present/base verb
     # ----------------------------
     if re.search(r"\b(yesterday|last|ago)\b", sentence.lower()):
-        if any(t.tag_ in ("VBP", "VBZ") for t in tokens):
-            errors["tense_error"] += 1
+        for t in tokens:
+            if t.pos_ == "VERB" and t.tag_ in ("VB", "VBP", "VBZ"):
+                errors["tense_error"] += 1
+                errors["tense_error_spans"].append(
+                    sentence[t.idx:t.idx + len(t)]
+                )
+                break
 
     # ----------------------------
-    # 9. Article misuse (a/an + plural)
-    # ----------------------------
-    for i, t in enumerate(tokens[:-1]):
-        if t.text.lower() in ("a", "an") and tokens[i + 1].tag_ == "NNS":
-            errors["article_error"] += 1
-            errors["article_error_spans"].append(
-                sentence[t.idx:tokens[i + 1].idx + len(tokens[i + 1])]
-            )
-
-    # ----------------------------
-    # 10. Preposition misuse
-    # ----------------------------
-    for t in tokens:
-        if t.text.lower() in ("increase", "increased", "increasing"):
-            for c in t.children:
-                if c.text.lower() == "on":
-                    errors["preposition_error"] += 1
-                    errors["preposition_error_spans"].append(
-                        sentence[t.idx:c.idx + len(c)]
-                    )
-
-    # ----------------------------
-    # 11. Total errors
+    # 9. Total errors
     # ----------------------------
     errors["total_errors"] = sum(
         v for k, v in errors.items()

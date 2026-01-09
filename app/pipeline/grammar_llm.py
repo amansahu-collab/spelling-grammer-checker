@@ -3,20 +3,33 @@ import json
 
 _llm = LLMRouter()
 
+# Allowed error types in the system
+ALLOWED_ERROR_TYPES = {
+    "agreement_error",
+    "article_error",
+    "tense_error",
+    "preposition_error",
+    "capitalization_error",
+    "missing_verb",
+    "missing_subject",
+    "fragment",
+    "run_on",
+    "clause_overload",
+    "conjunction_missing",
+    "copula_missing",
+    "connector_collision",
+    "whitespace_error",
+}
+
 SYSTEM_PROMPT = """
 You are a grammar error explainer.
 
-You will be given:
-- A student summary
-- Grammar errors with EXACT text spans already identified by the system
-
-Your task:
-- Explain WHY each given span is grammatically incorrect.
-- Do NOT change the span.
-- Do NOT invent new errors.
-- Do NOT merge errors.
-- Do NOT rewrite or correct anything.
-- Do NOT give suggestions.
+IMPORTANT RULES:
+- You MUST use the provided error `type` exactly as given.
+- You MUST NOT invent new error types.
+- You MUST NOT change the error type.
+- You MUST NOT correct or rewrite the text.
+- You MUST ONLY explain why the text span is incorrect.
 
 If no errors are provided, return an empty list.
 
@@ -37,79 +50,10 @@ Output ONLY valid JSON in this exact format:
 def explain_grammar_errors(summary: str, detected_errors: dict) -> dict:
     """
     STEP 5: LLM-based grammar explanation.
-    Locations come ONLY from rule-based logic.
-    LLM explains, never locates.
+    LLM EXPLAINS ONLY — never classifies or renames errors.
     """
 
-    if not summary:
-        return {"errors": []}
-
-    explanation_items = []
-
-    # ---- Existing error types ----
-    for span in detected_errors.get("conjunction_missing_spans", []):
-        explanation_items.append({
-            "type": "conjunction_missing",
-            "text_span": span
-        })
-
-    for span in detected_errors.get("article_error_spans", []):
-        explanation_items.append({
-            "type": "article_error",
-            "text_span": span
-        })
-
-    for span in detected_errors.get("preposition_error_spans", []):
-        explanation_items.append({
-            "type": "preposition_error",
-            "text_span": span
-        })
-
-    for span in detected_errors.get("capitalization_error_spans", []):
-        explanation_items.append({
-            "type": "capitalization_error",
-            "text_span": span
-        })
-
-    for span in detected_errors.get("agreement_error_spans", []):
-        explanation_items.append({
-            "type": "agreement_error",
-            "text_span": span
-        })
-
-    # ---- NEW diagnostic error types ----
-
-    for span in detected_errors.get("agreement_error_v2_spans", []):
-        explanation_items.append({
-            "type": "agreement_error",
-            "text_span": span
-        })
-
-    for span in detected_errors.get("copula_missing_spans", []):
-        explanation_items.append({
-            "type": "missing_verb",
-            "text_span": span
-        })
-
-    for span in detected_errors.get("connector_collision_spans", []):
-        explanation_items.append({
-            "type": "connector_collision",
-            "text_span": span
-        })
-
-    for span in detected_errors.get("whitespace_error_spans", []):
-        explanation_items.append({
-            "type": "whitespace_error",
-            "text_span": span
-        })
-
-    # ---- Clause overload (global) ----
-    if detected_errors.get("clause_overload", 0) > 0:
-        explanation_items.append({
-            "type": "clause_overload",
-            "text_span": summary
-        })
-
+    explanation_items = detected_errors.get("_items", [])
     if not explanation_items:
         return {"errors": []}
 
@@ -118,21 +62,33 @@ Student summary:
 {summary}
 
 Explain the following grammar errors.
-Use the PROVIDED text spans exactly as given.
+You MUST keep the error type unchanged.
 
 Errors to explain:
 {json.dumps(explanation_items, indent=2)}
 """.strip()
 
     try:
-        raw = _llm.chat(SYSTEM_PROMPT, user_prompt)
-        raw = raw.strip()
-
+        raw = _llm.chat(SYSTEM_PROMPT, user_prompt).strip()
         if not raw.startswith("{"):
             raw = raw[raw.find("{"):]
 
-        return json.loads(raw)
+        data = json.loads(raw)
+
+        # 🔒 HARD SAFETY: enforce allowed error types
+        cleaned = []
+        for err in data.get("errors", []):
+            if err.get("type") in ALLOWED_ERROR_TYPES:
+                cleaned.append(err)
+            else:
+                # fallback: reuse original type
+                for src in explanation_items:
+                    if src["text_span"] == err.get("text_span"):
+                        err["type"] = src["type"]
+                        cleaned.append(err)
+                        break
+
+        return {"errors": cleaned}
 
     except Exception:
-        # Explanation failure must NEVER break evaluation
         return {"errors": []}
