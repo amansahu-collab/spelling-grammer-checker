@@ -5,18 +5,18 @@ def score_grammar(
     """
     STEP 6: PTE-aligned grammar scoring (0–4)
 
-    Principles:
-    - Sentence-level judgement (not raw error count)
-    - Structural errors dominate
+    Philosophy:
+    - Sentence quality > raw error count
+    - Structural breakdown dominates
+    - Major grammar errors reduce score sharply
     - Minor errors tolerated
-    - No bonus hacks
     """
 
     if not sentence_results or sentence_count == 0:
         return 0
 
     # -------------------------------------------------
-    # Severity buckets
+    # Error severity buckets (UPDATED to match pipeline)
     # -------------------------------------------------
 
     CRITICAL = {
@@ -27,13 +27,14 @@ def score_grammar(
     }
 
     MAJOR = {
+        "aux_verb_error",
         "tense_error",
-        "agreement_error",
+        "comparison_error",
+        "pronoun_agreement_error",
     }
 
     MINOR = {
         "article_error",
-        "preposition_error",
         "capitalization_error",
         "conjunction_missing",
         "clause_overload",
@@ -41,7 +42,7 @@ def score_grammar(
     }
 
     # -------------------------------------------------
-    # Sentence classification
+    # Sentence-level classification
     # -------------------------------------------------
 
     critical_sentences = 0
@@ -61,7 +62,7 @@ def score_grammar(
             minor_sentences += 1
 
     # -------------------------------------------------
-    # HARD FAILS (PTE style)
+    # HARD FAILS (PTE behaviour)
     # -------------------------------------------------
 
     # Completely broken grammar
@@ -73,22 +74,22 @@ def score_grammar(
         return 1
 
     # -------------------------------------------------
-    # CORE SCORING
+    # CORE SCORING LOGIC
     # -------------------------------------------------
 
-    # Perfect / near perfect
+    # ✅ Score 4: Meaning clear, grammar strong
     if critical_sentences == 0 and major_sentences == 0:
         return 4
 
-    # Minor issues only
-    if critical_sentences == 0 and major_sentences <= 1:
+    # ✅ Score 3: Meaning clear, some grammar damage
+    if critical_sentences == 0 and major_sentences == 1:
         return 3
 
-    # Multiple major errors but structure survives
+    # ✅ Score 2: Meaning mostly clear, frequent grammar errors
     if critical_sentences == 0 and major_sentences > 1:
         return 2
 
-    # Some critical damage but not majority
+    # ✅ Score 1: Meaning partially obscured
     if critical_sentences > 0:
         return 1
 

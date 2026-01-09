@@ -2,7 +2,7 @@ import streamlit as st
 import json
 
 # ----------------------------
-# Pipeline imports (direct)
+# Pipeline imports
 # ----------------------------
 from pipeline.normalize import normalize_text
 from pipeline.segment import segment_sentences
@@ -12,7 +12,6 @@ from pipeline.grammar_llm import explain_grammar_errors
 from pipeline.grammar_score import score_grammar
 from pipeline.spelling import evaluate_spelling
 from pipeline.usage_clarity import analyze_usage_clarity
-
 
 
 # ----------------------------
@@ -47,7 +46,7 @@ if st.button("Analyze"):
         sentences = segment_sentences(normalized)
 
         sentence_results = []
-        sentence_error_packets = []  # <-- sentence + its errors
+        sentence_error_packets = []
         usage_issues = []
 
         for s in sentences:
@@ -57,7 +56,6 @@ if st.button("Analyze"):
             errors = refine_with_spacy(sent_text, errors)
 
             sentence_results.append(errors)
-
             sentence_error_packets.append({
                 "text": sent_text,
                 "errors": errors
@@ -67,47 +65,55 @@ if st.button("Analyze"):
             if usage.get("issues"):
                 usage_issues.extend(usage["issues"])
 
-        # STEP 3: grammar score (unchanged)
+        # STEP 3: grammar score
         grammar_score = score_grammar(
             sentence_results=sentence_results,
             sentence_count=len(sentences),
         )
 
         # --------------------------------------------------
-        # BUILD SENTENCE-LEVEL EXPLANATION ITEMS (FIX)
+        # BUILD CLEAN LLM EXPLANATION ITEMS (FINAL FIX)
         # --------------------------------------------------
         explanation_items = []
+        _seen = set()
 
         for packet in sentence_error_packets:
             sent_text = packet["text"]
             errs = packet["errors"]
 
-            # Span-based errors
+            # ---- Span-based errors ONLY ----
             for key, value in errs.items():
                 if key.endswith("_spans") and isinstance(value, list):
                     err_type = key.replace("_spans", "")
                     for span in value:
-                        explanation_items.append({
-                            "type": err_type,
-                            "text_span": span
-                        })
+                        if not span or not isinstance(span, str):
+                            continue
+                        k = (err_type, span)
+                        if k not in _seen:
+                            explanation_items.append({
+                                "type": err_type,
+                                "text_span": span
+                            })
+                            _seen.add(k)
 
-            # Structural errors (sentence-level)
+            # ---- Structural errors (sentence-level ONLY when no span exists) ----
             STRUCTURAL_ERRORS = [
                 "missing_verb",
                 "missing_subject",
                 "fragment",
                 "run_on",
-                "tense_error",
                 "clause_overload",
             ]
 
             for err_type in STRUCTURAL_ERRORS:
                 if errs.get(err_type, 0) > 0:
-                    explanation_items.append({
-                        "type": err_type,
-                        "text_span": sent_text
-                    })
+                    k = (err_type, sent_text)
+                    if k not in _seen:
+                        explanation_items.append({
+                            "type": err_type,
+                            "text_span": sent_text
+                        })
+                        _seen.add(k)
 
         grammar_explanation = (
             explain_grammar_errors(
@@ -201,7 +207,7 @@ if st.button("Analyze"):
                 st.write(f"• `{w}`")
 
     # ----------------------------
-    # Debug (optional)
+    # Debug
     # ----------------------------
     with st.expander("🔍 Raw Output (Debug)"):
         st.code(json.dumps(result, indent=2), language="json")
